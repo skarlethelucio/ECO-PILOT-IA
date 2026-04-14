@@ -1,0 +1,889 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>EcoPilot AI | Telemetry Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <style>
+        :root {
+            --bg:            #0c0f16;
+            --surface:       #111520;
+            --surface-2:     #161b27;
+            --border:        rgba(255,255,255,0.07);
+            --border-strong: rgba(255,255,255,0.12);
+            --amber:         #f5a623;
+            --amber-dim:     rgba(245,166,35,0.12);
+            --amber-glow:    rgba(245,166,35,0.25);
+            --red:           #e03e3e;
+            --red-glow:      rgba(224,62,62,0.25);
+            --text:          #e8eaf0;
+            --text-2:        rgba(232,234,240,0.55);
+            --text-3:        rgba(232,234,240,0.3);
+            --mono:          'IBM Plex Mono', monospace;
+            --sans:          'IBM Plex Sans', sans-serif;
+        }
+
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: var(--sans);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        /* fondo grid sutil */
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background-image:
+                linear-gradient(rgba(255,255,255,0.018) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255,255,255,0.018) 1px, transparent 1px);
+            background-size: 48px 48px;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        /* ── HEADER ── */
+        header {
+            position: relative;
+            z-index: 1;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 18px 32px;
+            border-bottom: 1px solid var(--border);
+            background: rgba(12,15,22,0.92);
+            backdrop-filter: blur(10px);
+        }
+        .h-eyebrow {
+            font-family: var(--mono);
+            font-size: 0.58rem;
+            letter-spacing: 4px;
+            color: var(--text-3);
+            text-transform: uppercase;
+            margin-bottom: 3px;
+        }
+        .h-title {
+            font-family: var(--mono);
+            font-size: 1.3rem;
+            font-weight: 600;
+            letter-spacing: 2px;
+            color: var(--text);
+        }
+        .h-title span { color: var(--amber); }
+        .h-right { display: flex; align-items: center; gap: 24px; }
+        .status-pill {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            font-family: var(--mono);
+            font-size: 0.62rem;
+            letter-spacing: 2px;
+            color: var(--text-2);
+            text-transform: uppercase;
+        }
+        .status-dot {
+            width: 6px; height: 6px;
+            border-radius: 50%;
+            background: #3ddc84;
+            box-shadow: 0 0 8px #3ddc84;
+            animation: blink 2s infinite;
+        }
+        @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.35} }
+        .h-time {
+            font-family: var(--mono);
+            font-size: 0.68rem;
+            color: var(--text-3);
+        }
+
+        /* ── LAYOUT ── */
+        .layout {
+            position: relative;
+            z-index: 1;
+            max-width: 1300px;
+            margin: 24px auto;
+            padding: 0 24px 32px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        /* ── PANEL base ── */
+        .panel {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 20px;
+            position: relative;
+            overflow: hidden;
+        }
+        .panel::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0; height: 1px;
+            background: linear-gradient(90deg, transparent, var(--border-strong), transparent);
+        }
+        .panel-label {
+            font-family: var(--mono);
+            font-size: 0.58rem;
+            letter-spacing: 4px;
+            text-transform: uppercase;
+            color: var(--text-3);
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .panel-label::before {
+            content: '';
+            width: 14px; height: 1px;
+            background: var(--amber);
+            display: inline-block;
+            flex-shrink: 0;
+        }
+
+        /* ── FILA SUPERIOR ── */
+        .row-top {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+        }
+
+        /* TACÓMETRO */
+        .tach-panel { display: flex; flex-direction: column; }
+        .tach-inner {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 28px;
+            flex: 1;
+        }
+        .tach-wrapper {
+            position: relative;
+            width: 210px; height: 210px;
+            flex-shrink: 0;
+        }
+        #tachCanvas { width: 100%; height: 100%; }
+        .tach-readout {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            margin-top: 18px;
+        }
+        .tach-val {
+            font-family: var(--mono);
+            font-size: 2rem;
+            font-weight: 600;
+            color: var(--amber);
+            line-height: 1;
+        }
+        .tach-unit {
+            font-family: var(--mono);
+            font-size: 0.58rem;
+            letter-spacing: 3px;
+            color: var(--text-3);
+            margin-top: 4px;
+        }
+        .tach-stats {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+        .ts-lbl {
+            font-family: var(--mono);
+            font-size: 0.55rem;
+            letter-spacing: 3px;
+            color: var(--text-3);
+            text-transform: uppercase;
+            margin-bottom: 3px;
+        }
+        .ts-val {
+            font-family: var(--mono);
+            font-size: 1.05rem;
+            font-weight: 500;
+            color: var(--text);
+        }
+        .ts-val.amber { color: var(--amber); }
+        .ts-bar {
+            margin-top: 5px;
+            height: 2px;
+            width: 110px;
+            background: var(--border);
+            border-radius: 1px;
+            overflow: hidden;
+        }
+        .ts-bar-fill {
+            height: 100%;
+            background: var(--amber);
+            border-radius: 1px;
+            transition: width .5s ease;
+        }
+
+        /* INPUTS */
+        .inputs-panel { display: flex; flex-direction: column; }
+        .inp-lbl {
+            font-family: var(--mono);
+            font-size: 0.58rem;
+            letter-spacing: 3px;
+            color: var(--text-3);
+            text-transform: uppercase;
+            margin-bottom: 8px;
+            display: block;
+        }
+        .inp-row {
+            display: flex;
+            align-items: center;
+            background: var(--surface-2);
+            border: 1px solid var(--border-strong);
+            border-radius: 4px;
+            overflow: hidden;
+            transition: border-color .2s;
+            margin-bottom: 16px;
+        }
+        .inp-row:focus-within {
+            border-color: var(--amber);
+            box-shadow: 0 0 0 2px var(--amber-dim);
+        }
+        .inp-icon {
+            padding: 0 12px;
+            font-family: var(--mono);
+            font-size: 0.8rem;
+            color: var(--amber);
+            border-right: 1px solid var(--border);
+            height: 44px;
+            display: flex;
+            align-items: center;
+            flex-shrink: 0;
+        }
+        input[type="number"] {
+            flex: 1;
+            background: transparent;
+            border: none;
+            outline: none;
+            color: var(--text);
+            font-family: var(--mono);
+            font-size: 1rem;
+            padding: 0 12px;
+            height: 44px;
+            -moz-appearance: textfield;
+        }
+        input[type="number"]::-webkit-outer-spin-button,
+        input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; }
+        .inp-unit {
+            padding: 0 12px;
+            font-family: var(--mono);
+            font-size: 0.62rem;
+            color: var(--text-3);
+            border-left: 1px solid var(--border);
+            height: 44px;
+            display: flex;
+            align-items: center;
+            flex-shrink: 0;
+        }
+
+        /* barra batería mini */
+        .batt-mini {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .batt-outer {
+            flex: 1;
+            height: 5px;
+            background: var(--border);
+            border-radius: 3px;
+            overflow: hidden;
+        }
+        .batt-inner {
+            height: 100%;
+            background: var(--amber);
+            border-radius: 3px;
+            transition: width .5s ease;
+        }
+        .batt-pct-label {
+            font-family: var(--mono);
+            font-size: 0.62rem;
+            color: var(--amber);
+            min-width: 36px;
+            text-align: right;
+        }
+
+        /* ANALYZE BTN */
+        #analyzeBtn {
+            width: 100%;
+            padding: 13px;
+            background: var(--red);
+            border: none;
+            border-radius: 4px;
+            color: #fff;
+            font-family: var(--mono);
+            font-size: 0.75rem;
+            font-weight: 500;
+            letter-spacing: 3px;
+            text-transform: uppercase;
+            cursor: pointer;
+            transition: background .2s, box-shadow .2s;
+        }
+        #analyzeBtn:hover {
+            background: #cc3232;
+            box-shadow: 0 0 22px var(--red-glow);
+        }
+        #analyzeBtn:active { transform: scale(.99); }
+
+        /* LOADER — mismo ID original */
+        #loader {
+            display: none;
+            font-family: var(--mono);
+            font-size: 0.62rem;
+            letter-spacing: 3px;
+            color: var(--amber);
+            text-align: center;
+            padding: 8px 0 0;
+            animation: blink 1s infinite;
+        }
+
+        /* ── MÉTRICAS ── */
+        .row-metrics {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 12px;
+        }
+        .metric {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 16px 18px;
+            position: relative;
+            overflow: hidden;
+        }
+        .metric::after {
+            content: '';
+            position: absolute;
+            top: 0; left: 0;
+            width: 3px; height: 100%;
+            background: var(--amber);
+        }
+        .metric.red-acc::after { background: var(--red); }
+        .metric-lbl {
+            font-family: var(--mono);
+            font-size: 0.52rem;
+            letter-spacing: 3px;
+            color: var(--text-3);
+            text-transform: uppercase;
+            margin-bottom: 4px;
+        }
+        .metric-val {
+            font-family: var(--mono);
+            font-size: 1.45rem;
+            font-weight: 600;
+            color: var(--amber);
+            line-height: 1.1;
+        }
+        .metric-val.red { color: var(--red); }
+        .metric-unit {
+            font-family: var(--mono);
+            font-size: 0.55rem;
+            color: var(--text-3);
+            letter-spacing: 2px;
+        }
+
+        /* ── FILA INFERIOR ── */
+        .row-bottom {
+            display: grid;
+            grid-template-columns: 1fr 1.2fr;
+            gap: 16px;
+        }
+
+        /* MAPA */
+        .map-panel { display: flex; flex-direction: column; }
+        .map-tabs {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+        .map-tab {
+            font-family: var(--mono);
+            font-size: 0.6rem;
+            letter-spacing: 2px;
+            padding: 6px 14px;
+            border: 1px solid var(--border-strong);
+            border-radius: 3px;
+            background: transparent;
+            color: var(--text-2);
+            cursor: pointer;
+            text-transform: uppercase;
+            transition: all .2s;
+        }
+        .map-tab:hover { border-color: var(--amber); color: var(--amber); }
+        .map-tab.active {
+            background: var(--amber-dim);
+            border-color: var(--amber);
+            color: var(--amber);
+        }
+        #map {
+            flex: 1;
+            min-height: 220px;
+            border-radius: 4px;
+            border: 1px solid var(--border);
+            filter: saturate(0.3) brightness(0.7) hue-rotate(180deg);
+        }
+
+        /* TERMINAL */
+        .terminal-panel { display: flex; flex-direction: column; }
+        .term-topbar {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: 12px;
+        }
+        .td { width: 8px; height: 8px; border-radius: 50%; }
+        .td-r{background:#e03e3e} .td-y{background:#f5a623} .td-g{background:#3ddc84}
+        .term-title {
+            font-family: var(--mono);
+            font-size: 0.58rem;
+            letter-spacing: 3px;
+            color: var(--text-3);
+            text-transform: uppercase;
+            margin-left: 6px;
+        }
+        .term-body {
+            flex: 1;
+            background: #080b10;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 16px;
+            min-height: 220px;
+            overflow-y: auto;
+            position: relative;
+        }
+        .term-body::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: repeating-linear-gradient(
+                0deg,
+                transparent, transparent 2px,
+                rgba(255,255,255,0.01) 2px, rgba(255,255,255,0.01) 4px
+            );
+            pointer-events: none;
+        }
+        .term-prompt {
+            font-family: var(--mono);
+            font-size: 0.6rem;
+            color: var(--text-3);
+            margin-bottom: 10px;
+            letter-spacing: 1px;
+        }
+        #result {
+            font-family: var(--mono);
+            font-size: 0.8rem;
+            line-height: 1.9;
+            color: var(--amber);
+            white-space: pre-wrap;
+            position: relative;
+            z-index: 1;
+        }
+
+        @media (max-width: 900px) {
+            .row-top, .row-bottom { grid-template-columns: 1fr; }
+            .row-metrics { grid-template-columns: repeat(2,1fr); }
+            .tach-inner { flex-direction: column; }
+        }
+    </style>
+</head>
+<body>
+
+<!-- HEADER -->
+<header>
+    <div>
+        <div class="h-eyebrow">Formula E · Telemetry System · v2.0</div>
+        <div class="h-title">ECO-PILOT <span>AI</span></div>
+    </div>
+    <div class="h-right">
+        <div class="status-pill">
+            <span class="status-dot"></span>
+            System Online · Indianapolis Motor Speedway
+        </div>
+        <div class="h-time" id="clockDisplay">--:--:--</div>
+    </div>
+</header>
+
+<div class="layout">
+
+    <!-- ══ FILA SUPERIOR ══ -->
+    <div class="row-top">
+
+        <!-- TACÓMETRO -->
+        <div class="panel tach-panel">
+            <div class="panel-label">Velocímetro</div>
+            <div class="tach-inner">
+                <div class="tach-wrapper">
+                    <canvas id="tachCanvas" width="210" height="210"></canvas>
+                    <div class="tach-readout">
+                        <div class="tach-val" id="tachDisplayVal">100</div>
+                        <div class="tach-unit">KM / H</div>
+                    </div>
+                </div>
+                <div class="tach-stats">
+                    <div>
+                        <div class="ts-lbl">Battery Used</div>
+                        <div class="ts-val amber" id="sideStatBatt">15 kWh</div>
+                        <div class="ts-bar"><div class="ts-bar-fill" id="sideStatBattBar" style="width:28.8%"></div></div>
+                    </div>
+                    <div>
+                        <div class="ts-lbl">Efficiency</div>
+                        <div class="ts-val" id="sideStatEff">— kWh/km</div>
+                    </div>
+                    <div>
+                        <div class="ts-lbl">Max Speed</div>
+                        <div class="ts-val" style="color:var(--red)">280 km/h</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- INPUTS -->
+        <div class="panel inputs-panel">
+            <div class="panel-label">Input Telemetry</div>
+
+            <label class="inp-lbl" for="speed">Vehicle Speed</label>
+            <div class="inp-row">
+                <div class="inp-icon">▶</div>
+                <input type="number" id="speed" value="100" oninput="onSpeedChange(this.value)">
+                <div class="inp-unit">km/h</div>
+            </div>
+
+            <label class="inp-lbl" for="battery">Battery Used</label>
+            <div class="inp-row">
+                <div class="inp-icon">⚡</div>
+                <input type="number" id="battery" value="15" oninput="onBatteryChange(this.value)">
+                <div class="inp-unit">kWh</div>
+            </div>
+            <label class="inp-lbl" for="distance">Distance Traveled</label>
+            <div class="inp-row">
+                <div class="inp-icon">⇄</div>
+                <input type="number" id="distance" value="10" oninput="updateEfficiency()">
+                <div class="inp-unit">km</div>
+            </div>
+            <div class="batt-mini">
+                <div class="batt-outer"><div class="batt-inner" id="battMiniBar" style="width:28.8%"></div></div>
+                <div class="batt-pct-label" id="battMiniPct">29%</div>
+            </div>
+
+            <button id="analyzeBtn" onclick="analyzeData()">⬡ Analyze System</button>
+            <div id="loader">⟳ SYNCING WITH BACKBOARD AI...</div>
+        </div>
+
+    </div>
+
+    <!-- ══ MÉTRICAS ══ -->
+    <div class="row-metrics">
+        <div class="metric">
+            <div class="metric-lbl">Speed</div>
+            <div class="metric-val" id="metricSpeed">100</div>
+            <div class="metric-unit">km/h</div>
+        </div>
+        <div class="metric">
+            <div class="metric-lbl">Battery Used</div>
+            <div class="metric-val" id="metricBattery">15</div>
+            <div class="metric-unit">kWh</div>
+        </div>
+        <div class="metric">
+            <div class="metric-lbl">Efficiency</div>
+            <div class="metric-val" id="metricEff">—</div>
+            <div class="metric-unit">kWh/km</div>
+        </div>
+        <div class="metric red-acc">
+            <div class="metric-lbl">Status</div>
+            <div class="metric-val red" id="metricStatus">IDLE</div>
+            <div class="metric-unit">&nbsp;</div>
+        </div>
+    </div>
+
+    <!-- ══ FILA INFERIOR ══ -->
+    <div class="row-bottom">
+
+        <!-- MAPA -->
+        <div class="panel map-panel">
+            <div class="panel-label">Track Location</div>
+            <div class="map-tabs">
+                <button class="map-tab active" onclick="flyTo('ims',this)">Indianapolis (IMS)</button>
+                <button class="map-tab" onclick="flyTo('mex',this)">México (Test Ground)</button>
+            </div>
+            <div id="map"></div>
+        </div>
+
+        <!-- TERMINAL -->
+        <div class="panel terminal-panel">
+            <div class="term-topbar">
+                <span class="td td-r"></span>
+                <span class="td td-y"></span>
+                <span class="td td-g"></span>
+                <span class="term-title">AI Technical Verdict</span>
+            </div>
+            <div class="term-body">
+                <div class="term-prompt">&gt; ECOPILOT_AI v2.0 // BACKBOARD ENGINE CONNECTED</div>
+                <div id="result">Awaiting telemetry data... Input speed and battery values, then run ANALYZE SYSTEM.</div>
+            </div>
+        </div>
+
+    </div>
+
+</div><!-- /layout -->
+
+<!-- ── Elementos ocultos requeridos por el JS original y por script.js ── -->
+<!-- batteryFill y batteryPct: usados en onBatteryChange() original -->
+<div style="display:none;">
+    <div id="batteryFill"></div>
+    <span id="batteryPct"></span>
+    <span id="trackSpeedDisplay"></span>
+    <span id="efficiencyLabel"></span>
+    <canvas id="efficiencyChart"></canvas>
+    <!-- car-photo y scannerLine: usados en triggerVibrate/triggerScan -->
+    <svg id="car-photo"></svg>
+    <div id="scannerLine"></div>
+</div>
+
+<script>
+    // ── RELOJ ──
+    function updateClock() {
+        document.getElementById('clockDisplay').textContent =
+            new Date().toLocaleTimeString('en-GB', { hour12: false });
+    }
+    updateClock();
+    setInterval(updateClock, 1000);
+
+    // ── TACÓMETRO ──
+    const tachCanvas = document.getElementById('tachCanvas');
+    const tachCtx    = tachCanvas.getContext('2d');
+    const MAX_SPEED  = 280;
+    
+    function updateEfficiency() {
+        const battery = parseFloat(document.getElementById('battery').value) || 0;
+    const distance = parseFloat(document.getElementById('distance').value) || 0;
+
+    if (distance > 0) {
+        const efficiency = battery / distance;
+
+        document.getElementById('metricEff').textContent = efficiency.toFixed(3);
+        document.getElementById('sideStatEff').textContent = efficiency.toFixed(3) + ' kWh/km';
+    } else {
+        document.getElementById('metricEff').textContent = '—';
+        document.getElementById('sideStatEff').textContent = '— kWh/km';
+    }}
+
+    function drawTach(speed) {
+        const w = tachCanvas.width, h = tachCanvas.height;
+        const cx = w/2, cy = h/2 + 10, r = 86;
+        tachCtx.clearRect(0, 0, w, h);
+
+        const startA  = Math.PI * 0.75;
+        const endA    = Math.PI * 2.25;
+        const ratio   = Math.min(speed / MAX_SPEED, 1);
+        const needleA = startA + ratio * (endA - startA);
+
+        // pista fondo
+        tachCtx.beginPath();
+        tachCtx.arc(cx, cy, r, startA, endA);
+        tachCtx.strokeStyle = 'rgba(255,255,255,0.06)';
+        tachCtx.lineWidth = 12;
+        tachCtx.lineCap = 'round';
+        tachCtx.stroke();
+
+        // arco activo
+        if (ratio > 0) {
+            const col = ratio < 0.5 ? '#3ddc84' : ratio < 0.75 ? '#f5a623' : '#e03e3e';
+            tachCtx.beginPath();
+            tachCtx.arc(cx, cy, r, startA, needleA);
+            tachCtx.strokeStyle = col;
+            tachCtx.lineWidth = 12;
+            tachCtx.lineCap = 'round';
+            tachCtx.shadowColor = col;
+            tachCtx.shadowBlur = 10;
+            tachCtx.stroke();
+            tachCtx.shadowBlur = 0;
+        }
+
+        // ticks
+        for (let i = 0; i <= 14; i++) {
+            const a = startA + (i/14)*(endA-startA);
+            const major = i % 2 === 0;
+            const ir = r - (major ? 20 : 14), or = r - 6;
+            tachCtx.beginPath();
+            tachCtx.moveTo(cx + Math.cos(a)*ir, cy + Math.sin(a)*ir);
+            tachCtx.lineTo(cx + Math.cos(a)*or, cy + Math.sin(a)*or);
+            tachCtx.strokeStyle = major ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.15)';
+            tachCtx.lineWidth = major ? 1.5 : 1;
+            tachCtx.shadowBlur = 0;
+            tachCtx.stroke();
+            if (major) {
+                tachCtx.font = '8px IBM Plex Mono, monospace';
+                tachCtx.fillStyle = 'rgba(255,255,255,0.3)';
+                tachCtx.textAlign = 'center';
+                tachCtx.textBaseline = 'middle';
+                const lr = r - 30;
+                tachCtx.fillText(Math.round((i/14)*MAX_SPEED),
+                    cx + Math.cos(a)*lr, cy + Math.sin(a)*lr);
+            }
+        }
+
+        // aguja
+        tachCtx.save();
+        tachCtx.translate(cx, cy);
+        tachCtx.rotate(needleA);
+        tachCtx.beginPath();
+        tachCtx.moveTo(-(r-105), 0);
+        tachCtx.lineTo(r-20, 0);
+        tachCtx.strokeStyle = '#fff';
+        tachCtx.lineWidth = 1.5;
+        tachCtx.shadowColor = 'rgba(255,255,255,.6)';
+        tachCtx.shadowBlur = 6;
+        tachCtx.stroke();
+        tachCtx.restore();
+
+        // centro
+        tachCtx.beginPath();
+        tachCtx.arc(cx, cy, 5, 0, Math.PI*2);
+        tachCtx.fillStyle = '#fff';
+        tachCtx.shadowColor = 'rgba(255,255,255,.8)';
+        tachCtx.shadowBlur = 8;
+        tachCtx.fill();
+        tachCtx.shadowBlur = 0;
+    }
+    drawTach(100);
+
+    // ── MAPA ──
+    const map = L.map('map').setView([39.795, -86.235], 14);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {}).addTo(map);
+    L.marker([39.795, -86.235]).addTo(map).bindPopup('IMS Telemetry Center');
+
+    const LOCS = {
+        ims: { latlng:[39.7950,-86.2347], zoom:14 },
+        mex: { latlng:[21.8823, -102.2826], zoom:14 }
+    };
+    function flyTo(loc, btn) {
+        document.querySelectorAll('.map-tab').forEach(t => t.classList.remove('active'));
+        btn.classList.add('active');
+        map.flyTo(LOCS[loc].latlng, LOCS[loc].zoom, { duration:1.2 });
+    }
+
+    // ── GAUGE (requerido por el JS original) ──
+    const ctx = document.getElementById('efficiencyChart').getContext('2d');
+    const efficiencyChart = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+            labels: ['Eficiencia','Resto'],
+            datasets: [{ data:[0,100], backgroundColor:['#f5a623','#1a1a1a'], borderWidth:0 }]
+        },
+        options: {
+            circumference: 180, rotation: 270, cutout: '72%',
+            plugins: { legend:{ display:false }, tooltip:{ enabled:false } }
+        }
+    });
+
+    // ─── BATTERY LOGIC — ORIGINAL EXACTO ───
+    const MAX_KWH = 52; // Gen3 Formula E battery max
+    function onBatteryChange(val) {
+        const kwh = parseFloat(val) || 0;
+        const pct = Math.min(Math.max((kwh / MAX_KWH) * 100, 0), 100);
+        document.getElementById('batteryFill').style.height = pct + '%';
+        document.getElementById('batteryPct').textContent = Math.round(pct) + '%';
+        document.getElementById('metricBattery').textContent = kwh;
+         
+        document.getElementById('battMiniBar').style.width = pct + '%';
+        document.getElementById('battMiniPct').textContent = Math.round(pct) + '%';
+        document.getElementById('sideStatBatt').textContent = kwh + ' kWh';
+        document.getElementById('sideStatBattBar').style.width = pct + '%';
+        updateEfficiency(); // 🔥 agregado
+    }
+
+    // ─── SPEED DISPLAY UPDATE — ORIGINAL EXACTO ───
+
+function onSpeedChange(val) {
+    document.getElementById('trackSpeedDisplay').textContent = val + ' km/h';
+    document.getElementById('metricSpeed').textContent = val;
+
+    document.getElementById('tachDisplayVal').textContent = val;
+    drawTach(parseFloat(val) || 0);
+
+    updateEfficiency(); //
+}
+    // Init battery display on load
+    onBatteryChange(document.getElementById('battery').value);
+    updateEfficiency(); //
+
+    // ─── SCANNER & VIBRATE HELPERS — ORIGINALES ───
+    function triggerScan() {
+        const line = document.getElementById('scannerLine');
+        line.classList.add('fast');
+        setTimeout(() => line.classList.remove('fast'), 600);
+    }
+    function triggerVibrate() {
+        const car = document.getElementById('car-photo');
+        car.classList.add('vibrate');
+        car.addEventListener('animationend', () => car.classList.remove('vibrate'), { once: true });
+    }
+
+    // ─── MAIN ANALYZE — JS 100% ORIGINAL ───
+    async function analyzeData() {
+    const speed     = document.getElementById('speed').value;
+    const battery   = document.getElementById('battery').value;
+    const distance  = document.getElementById('distance').value; // 🔥 agregado
+
+    const loader    = document.getElementById('loader');
+    const resultDiv = document.getElementById('result');
+
+    triggerVibrate();
+    triggerScan();
+    document.getElementById('metricStatus').textContent  = 'SYNC';
+    document.getElementById('metricSpeed').textContent   = speed;
+    document.getElementById('metricBattery').textContent = battery;
+
+    loader.style.display = 'block';
+    resultDiv.innerHTML  = '> Connecting to Backboard AI...\n> Fetching weather data...\n> Running efficiency model...';
+
+    try {
+        const response = await fetch('/analyze', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ speed, battery, distance }) // 🔥 modificado
+        });
+
+        const data = await response.json();
+
+        resultDiv.innerHTML = data.result;
+
+        const val = Math.min(data.efficiency * 100, 100);
+        efficiencyChart.data.datasets[0].data = [val, 100 - val];
+        efficiencyChart.update();
+
+        document.getElementById('metricEff').textContent = parseFloat(data.efficiency).toFixed(3);
+        document.getElementById('efficiencyLabel').textContent = parseFloat(data.efficiency).toFixed(3);
+        document.getElementById('metricStatus').textContent = 'DONE';
+
+        document.getElementById('sideStatEff').textContent =
+            parseFloat(data.efficiency).toFixed(3) + ' kWh/km';
+
+    } catch (error) {
+        resultDiv.innerHTML = '> ERROR: ' + error.message;
+        document.getElementById('metricStatus').textContent = 'ERR';
+    } finally {
+        loader.style.display = 'none';
+    }
+}
+</script>
+<script src="script.js"></script>
+
+</body>
+</html>
