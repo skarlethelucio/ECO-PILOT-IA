@@ -32,6 +32,10 @@ Then open in your browser:
 
 ``http://localhost:3000``
 
+## 🎥 Demo
+[![EcoPilot Demo](https://img.youtube.com/vi/-DFWXAJ9JOc/0.jpg)](https://youtu.be/-DFWXAJ9JOc)
+
+
 ## Overview
 
 In electric racing, every watt matters.
